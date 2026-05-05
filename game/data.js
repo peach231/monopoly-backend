@@ -68,7 +68,15 @@ const CHANCE_CARDS = [
   { id: "c13", text: "Pay poor tax of $15", action: "money", amount: -15 },
   { id: "c14", text: "Take a trip to YYZ Airport", action: "move", target: 5 },
   { id: "c15", text: "Elected Chairman: Pay each player $50", action: "payEach", amount: 50 },
-  { id: "c16", text: "Building loan matures: Collect $150", action: "money", amount: 150 }
+  { id: "c16", text: "Building loan matures: Collect $150", action: "money", amount: 150 },
+  { id: "c17", text: "Flight upgrade! Collect $50", action: "money", amount: 50 },
+  { id: "c18", text: "Missed your connection. Advance to nearest Airport", action: "nearest", targetType: "railroad", payDouble: true },
+  { id: "c19", text: "Baggage fee refund: Collect $25", action: "money", amount: 25 },
+  { id: "c20", text: "First class upgrade: Collect $100", action: "money", amount: 100 },
+  { id: "c21", text: "Flight delay: Pay $30 for hotel", action: "money", amount: -30 },
+  { id: "c22", text: "Airport lounge access: Collect $20", action: "money", amount: 20 },
+  { id: "c23", text: "Lost luggage compensation: Collect $75", action: "money", amount: 75 },
+  { id: "c24", text: "Duty-free jackpot: Collect $50", action: "money", amount: 50 }
 ];
 
 const COMMUNITY_CHEST_CARDS = [
@@ -87,7 +95,15 @@ const COMMUNITY_CHEST_CARDS = [
   { id: "cc13", text: "Receive $25 consultancy fee", action: "money", amount: 25 },
   { id: "cc14", text: "Street repairs: $40 per house, $115 per hotel", action: "repairs", houseCost: 40, hotelCost: 115 },
   { id: "cc15", text: "Won beauty contest: Collect $10", action: "money", amount: 10 },
-  { id: "cc16", text: "Inheritance: Collect $100", action: "money", amount: 100 }
+  { id: "cc16", text: "Inheritance: Collect $100", action: "money", amount: 100 },
+  { id: "cc17", text: "Airport parking refund: Collect $15", action: "money", amount: 15 },
+  { id: "cc18", text: "Duty free shopping spree: Pay $40", action: "money", amount: -40 },
+  { id: "cc19", text: "Mileage points redeemed: Collect $100", action: "money", amount: 100 },
+  { id: "cc20", text: "Airport meal voucher: Collect $25", action: "money", amount: 25 },
+  { id: "cc21", text: "Extra baggage fee: Pay $35", action: "money", amount: -35 },
+  { id: "cc22", text: "Flight voucher: Collect $50", action: "money", amount: 50 },
+  { id: "cc23", text: "Airport shuttle missed: Go back 3 spaces", action: "moveRelative", offset: -3 },
+  { id: "cc24", text: "VIP lounge pass: Collect $30", action: "money", amount: 30 }
 ];
 
 const TOKENS = ["backpack", "textbooks", "graduation-hat", "pencil"];
