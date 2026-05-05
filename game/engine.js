@@ -53,6 +53,7 @@ function createGame(roomCode, hostName) {
     chanceDiscard: [],
     communityChestDiscard: [],
     turnSequence: 0,
+    extraRoll: false,
     log: [`Room ${roomCode} created. Waiting for players...`]
   };
   return { game, hostId };
@@ -122,6 +123,7 @@ function nextPlayer(game) {
     attempts++;
   } while (getCurrentPlayer(game).isBankrupt && attempts < game.players.length);
   game.doublesCount = 0;
+  game.extraRoll = false;
   game.turnPhase = 'roll';
   game.turnSequence++;
   const p = getCurrentPlayer(game);
@@ -389,6 +391,10 @@ function handleRoll(game, playerId) {
       game.log.push(`${player.name} rolled doubles and escaped Jail!`);
       movePlayer(game, playerId, (player.position + sum) % 40);
       const result = handleLanding(game, playerId, sum);
+      game.extraRoll = true;
+      if (game.turnPhase !== 'buy') {
+        game.turnPhase = 'roll';
+      }
       return { success: true, dice: game.dice, ...result };
     } else {
       player.jailTurns++;
@@ -403,6 +409,7 @@ function handleRoll(game, playerId) {
         return { success: true, dice: game.dice, ...result };
       }
       game.turnPhase = 'end';
+      game.extraRoll = false;
       return { success: true, dice: game.dice, action: 'jailStay' };
     }
   }
@@ -414,20 +421,22 @@ function handleRoll(game, playerId) {
       player.inJail = true;
       player.jailTurns = 0;
       game.doublesCount = 0;
+      game.extraRoll = false;
       game.log.push(`${player.name} rolled 3 doubles and was sent to Jail!`);
       game.turnPhase = 'end';
       return { success: true, dice: game.dice, action: 'jail' };
     }
+    game.extraRoll = true;
   } else {
     game.doublesCount = 0;
+    game.extraRoll = false;
   }
 
   movePlayer(game, playerId, (player.position + sum) % 40);
   const result = handleLanding(game, playerId, sum);
 
-  if (isDouble && game.turnPhase !== 'buy') {
+  if (game.extraRoll && game.turnPhase !== 'buy') {
     game.turnPhase = 'roll';
-    result.extraRoll = true;
   }
 
   return { success: true, dice: game.dice, ...result };
@@ -448,7 +457,7 @@ function buyProperty(game, playerId) {
   prop.ownerId = playerId;
   player.properties.push(player.position);
   game.log.push(`${player.name} bought ${tile.name} for $${tile.price}.`);
-  game.turnPhase = 'end';
+  game.turnPhase = game.extraRoll ? 'roll' : 'end';
   return { success: true };
 }
 
@@ -502,7 +511,7 @@ function endAuction(game, playerId) {
   }
 
   game.auction = null;
-  game.turnPhase = 'end';
+  game.turnPhase = game.extraRoll ? 'roll' : 'end';
   return { success: true };
 }
 
@@ -547,7 +556,9 @@ function resolveCard(game, playerId) {
     return { success: true, result, landing };
   }
 
-  if (game.turnPhase !== 'buy') game.turnPhase = 'end';
+  if (game.turnPhase !== 'buy') {
+    game.turnPhase = game.extraRoll ? 'roll' : 'end';
+  }
   return { success: true, result };
 }
 
@@ -749,7 +760,8 @@ function getSanitizedState(game, requesterId = null) {
     } : null,
     freeParkingMoney: game.freeParkingMoney,
     log: game.log.slice(-20),
-    turnSequence: game.turnSequence
+    turnSequence: game.turnSequence,
+    extraRoll: game.extraRoll
   };
 }
 
