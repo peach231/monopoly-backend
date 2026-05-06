@@ -677,12 +677,14 @@ function proposeTrade(game, fromId, toId, offerProps, offerMoney, requestProps, 
   if (!from || !to || from.isBankrupt || to.isBankrupt) return { success: false, message: 'Invalid players' };
   if (from.money < offerMoney) return { success: false, message: 'Not enough money' };
 
-  // Validate properties
+  // Validate properties - mortgaged properties CAN be traded
   for (const pid of offerProps) {
-    if (game.properties[pid].ownerId !== fromId) return { success: false, message: 'You do not own a property' };
+    const prop = game.properties[pid];
+    if (!prop || prop.ownerId !== fromId) return { success: false, message: 'You do not own a property' };
   }
   for (const pid of requestProps) {
-    if (game.properties[pid].ownerId !== toId) return { success: false, message: 'They do not own a property' };
+    const prop = game.properties[pid];
+    if (!prop || prop.ownerId !== toId) return { success: false, message: 'They do not own a property' };
   }
 
   game.pendingTrade = {
