@@ -466,12 +466,22 @@ function startAuction(game, playerId) {
   if (game.turnPhase !== 'buy') return { success: false, message: 'Cannot auction now' };
 
   const tile = BOARD_TILES[getCurrentPlayer(game).position];
+  const activeBidders = game.players
+    .filter(p => !p.isBankrupt && p.isConnected)
+    .map(p => p.id);
+    
+  // Fallback: include all non-bankrupt if no one connected (edge case)
+  if (activeBidders.length === 0) {
+    activeBidders.push(...game.players.filter(p => !p.isBankrupt).map(p => p.id));
+  }
+  
   game.auction = {
     propertyId: getCurrentPlayer(game).position,
     bids: [],
     highestBid: 0,
     highestBidder: null,
-    activeBidders: game.players.filter(p => !p.isBankrupt).map(p => p.id)
+    activeBidders: activeBidders,
+    startedAt: Date.now()
   };
   game.turnPhase = 'auction';
   game.log.push(`Auction started for ${tile.name}!`);
@@ -501,11 +511,15 @@ function endAuction(game, playerId) {
 
   if (auction.highestBidder) {
     const winner = game.players.find(p => p.id === auction.highestBidder);
-    winner.money -= auction.highestBid;
-    const prop = game.properties[auction.propertyId];
-    prop.ownerId = auction.highestBidder;
-    winner.properties.push(auction.propertyId);
-    game.log.push(`${winner.name} won ${tile.name} for $${auction.highestBid}!`);
+    if (winner.money >= auction.highestBid) {
+      winner.money -= auction.highestBid;
+      const prop = game.properties[auction.propertyId];
+      prop.ownerId = auction.highestBidder;
+      winner.properties.push(auction.propertyId);
+      game.log.push(`${winner.name} won ${tile.name} for $${auction.highestBid}!`);
+    } else {
+      game.log.push(`${winner.name} couldn't afford $${auction.highestBid}. Property remains unsold.`);
+    }
   } else {
     game.log.push(`No bids for ${tile.name}. Property remains unsold.`);
   }
