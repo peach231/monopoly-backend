@@ -746,6 +746,40 @@ function endTurn(game, playerId) {
   return { success: true };
 }
 
+function forceEndTurn(game, requesterId) {
+  const currentPlayer = getCurrentPlayer(game);
+  const requester = game.players.find(p => p.id === requesterId);
+
+  if (currentPlayer.isConnected) {
+    return { success: false, message: 'Current player is connected' };
+  }
+  if (!requester || requester.isBankrupt || !requester.isConnected) {
+    return { success: false, message: 'Cannot skip turn' };
+  }
+  if (game.status !== 'playing') {
+    return { success: false, message: 'Game not in progress' };
+  }
+
+  // Resolve any pending card first
+  if (game.pendingCard) {
+    resolveCard(game, currentPlayer.id);
+  }
+
+  // End any active auction
+  if (game.turnPhase === 'auction') {
+    endAuction(game, currentPlayer.id);
+  }
+
+  // Forfeit purchase opportunity if stuck in buy phase
+  if (game.turnPhase === 'buy') {
+    game.turnPhase = game.extraRoll ? 'roll' : 'end';
+  }
+
+  nextPlayer(game);
+  game.log.push(`${currentPlayer.name}'s turn was skipped (disconnected).`);
+  return { success: true };
+}
+
 function getSanitizedState(game, requesterId = null) {
   return {
     roomCode: game.roomCode,
