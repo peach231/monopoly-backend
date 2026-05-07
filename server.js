@@ -8,14 +8,13 @@ const {
   handleRoll, buyProperty, startAuction, placeBid, endAuction,
   payJailFine, useJailCard, resolveCard,
   buildHouse, sellHouse, mortgageProperty, unmortgageProperty,
-  proposeTrade, respondTrade, endTurn,
+  proposeTrade, respondTrade, endTurn, forceEndTurn,
   getSanitizedState
 } = require('./game/engine');
 
 const app = express();
 const server = http.createServer(app);
 
-// CORS - reads from env var or uses defaults
 const rawOrigins = process.env.ALLOWED_ORIGINS;
 const ALLOWED_ORIGINS = rawOrigins
   ? rawOrigins.split(',').map(s => s.trim()).filter(Boolean)
@@ -44,14 +43,17 @@ const io = new Server(server, {
     methods: ['GET', 'POST'],
     credentials: true
   },
-  pingTimeout: 60000,
-  pingInterval: 25000
+  pingTimeout: 120000,
+  pingInterval: 30000,
+  connectTimeout: 45000,
+  transports: ['websocket', 'polling'],
+  allowUpgrades: true
 });
 
-// In-memory storage
 const games = new Map();
 const socketToRoom = new Map();
 const socketToPlayer = new Map();
+const disconnectTimers = new Map();
 
 function generateRoomCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -84,6 +86,10 @@ function safeBroadcast(roomCode) {
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
+  socket.on('clientPing', () => {
+    socket.emit('clientPong');
+  });
+
   socket.on('createRoom', ({ playerName }, callback) => {
     try {
       const roomCode = generateRoomCode();
@@ -115,6 +121,10 @@ io.on('connection', (socket) => {
         if (existing) {
           const result = rejoinGame(game, playerId, socket.id);
           if (result.success) {
+            if (disconnectTimers.has(roomCode)) {
+              clearTimeout(disconnectTimers.get(roomCode));
+              disconnectTimers.delete(roomCode);
+            }
             socket.join(roomCode);
             socketToRoom.set(socket.id, roomCode);
             socketToPlayer.set(socket.id, { roomCode, playerId });
@@ -354,13 +364,49 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
+  socket.on('forceEndTurn', ({ roomCode, playerId }, callback) => {
+    try {
+      const game = games.get(roomCode);
+      if (!game) return callback({ success: false, message: 'Room not found' });
+      const result = forceEndTurn(game, playerId);
+      callback(result);
+      if (result.success) safeBroadcast(roomCode);
+    } catch (err) {
+      console.error(err);
+      callback({ success: false, message: err.message });
+    }
+  });
+
+  socket.on('disconnect', (reason) => {
+    console.log('Client disconnected:', socket.id, reason);
     const mapping = socketToPlayer.get(socket.id);
     if (mapping) {
       const game = games.get(mapping.roomCode);
       if (game) {
         disconnectPlayer(game, socket.id);
+
+        const currentPlayer = game.players[game.currentPlayerIndex];
+        const dcPlayer = game.players.find(p => p.socketId === socket.id);
+        if (dcPlayer && currentPlayer && dcPlayer.id === currentPlayer.id && game.status === 'playing') {
+          if (disconnectTimers.has(mapping.roomCode)) {
+            clearTimeout(disconnectTimers.get(mapping.roomCode));
+          }
+          const timer = setTimeout(() => {
+            const g = games.get(mapping.roomCode);
+            if (!g) return;
+            const cp = g.players[g.currentPlayerIndex];
+            if (cp && !cp.isConnected) {
+              const requester = g.players.find(p => p.isConnected && !p.isBankrupt && p.id !== cp.id);
+              if (requester) {
+                const r = forceEndTurn(g, requester.id);
+                if (r.success) safeBroadcast(mapping.roomCode);
+              }
+            }
+            disconnectTimers.delete(mapping.roomCode);
+          }, 15000);
+          disconnectTimers.set(mapping.roomCode, timer);
+        }
+
         safeBroadcast(mapping.roomCode);
       }
       socketToRoom.delete(socket.id);
