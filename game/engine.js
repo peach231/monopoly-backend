@@ -788,7 +788,13 @@ function getSanitizedState(game, requesterId = null) {
     dice: game.dice,
     turnPhase: game.turnPhase,
     pendingCard: game.pendingCard,
-    auction: game.auction,
+        auction: game.auction ? {
+      propertyId: game.auction.propertyId,
+      highestBid: game.auction.highestBid,
+      highestBidder: game.auction.highestBidder,
+      activeBidders: game.auction.activeBidders,
+      endTime: game.auction.endTime
+    } : null,
     pendingTrade: game.pendingTrade ? {
       ...game.pendingTrade,
       isForMe: game.pendingTrade.toId === requesterId
