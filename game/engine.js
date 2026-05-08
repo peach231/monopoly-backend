@@ -475,14 +475,16 @@ function startAuction(game, playerId) {
     activeBidders.push(...game.players.filter(p => !p.isBankrupt).map(p => p.id));
   }
   
-  game.auction = {
+    game.auction = {
     propertyId: getCurrentPlayer(game).position,
     bids: [],
     highestBid: 0,
     highestBidder: null,
     activeBidders: activeBidders,
-    startedAt: Date.now()
+    startedAt: Date.now(),
+    endTime: Date.now() + 10000
   };
+  
   game.turnPhase = 'auction';
   game.log.push(`Auction started for ${tile.name}!`);
   return { success: true };
