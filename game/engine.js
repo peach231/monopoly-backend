@@ -690,11 +690,13 @@ function proposeTrade(game, fromId, toId, offerProps, offerMoney, requestProps, 
     if (!prop || prop.ownerId !== toId) return { success: false, message: 'They do not own a property' };
   }
 
+    const mortgagedCount = [...offerProps, ...requestProps].filter(pid => game.properties[pid].isMortgaged).length;
+  
   game.pendingTrade = {
     fromId, toId, offerProps, offerMoney, requestProps, requestMoney,
     fromName: from.name, toName: to.name
   };
-  game.log.push(`${from.name} proposed a trade to ${to.name}.`);
+  game.log.push(`${from.name} proposed a trade to ${to.name}.${mortgagedCount > 0 ? ` (${mortgagedCount} mortgaged)` : ''}`);
   return { success: true };
 }
 
