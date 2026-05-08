@@ -153,7 +153,6 @@ function calculateRent(game, propertyId, diceSum = 0) {
   if (tile.type === 'property') {
     if (prop.hotel) return tile.rent[5];
     if (prop.houses > 0) return tile.rent[prop.houses];
-    // Monopoly check
     const group = COLOR_GROUPS[tile.colorGroup];
     const ownsAll = group.every(id => game.properties[id].ownerId === prop.ownerId);
     return ownsAll ? tile.rent[0] * 2 : tile.rent[0];
@@ -338,8 +337,7 @@ function checkBankruptcy(game, playerId) {
   const player = game.players.find(p => p.id === playerId);
   if (player.money >= 0) return false;
 
-  // Try to auto-mortgage properties to save player
-  const playerProps = game.properties.filter(p => p.ownerId === playerId && !p.isMortgaged);
+  const playerProps = game.properties.filter(p => p.ownerId === playerId && !p.isMortgaged && p.houses === 0 && !p.hotel);
   for (const prop of playerProps) {
     const tile = BOARD_TILES[prop.id];
     prop.isMortgaged = true;
@@ -348,12 +346,9 @@ function checkBankruptcy(game, playerId) {
     if (player.money >= 0) return false;
   }
 
-  // Still bankrupt
   player.isBankrupt = true;
   game.log.push(`${player.name} went bankrupt!`);
 
-  // Transfer properties to creditor or bank
-  // For simplicity, return to bank
   game.properties.forEach(p => {
     if (p.ownerId === playerId) {
       p.ownerId = null;
@@ -363,7 +358,6 @@ function checkBankruptcy(game, playerId) {
     }
   });
 
-  // Check win condition
   const alive = game.players.filter(p => !p.isBankrupt);
   if (alive.length === 1) {
     game.status = 'ended';
@@ -470,12 +464,11 @@ function startAuction(game, playerId) {
     .filter(p => !p.isBankrupt && p.isConnected)
     .map(p => p.id);
     
-  // Fallback: include all non-bankrupt if no one connected (edge case)
   if (activeBidders.length === 0) {
-    activeBidders.push(...game.players.filter(p => !p.isBankrupt).map(p => p.id));
+    activeBidders.push(...game.players.filter(p => !p.isBankrupt && p.isConnected).map(p => p.id));
   }
   
-    game.auction = {
+  game.auction = {
     propertyId: getCurrentPlayer(game).position,
     bids: [],
     highestBid: 0,
@@ -484,7 +477,6 @@ function startAuction(game, playerId) {
     startedAt: Date.now(),
     endTime: Date.now() + 10000
   };
-  
   game.turnPhase = 'auction';
   game.log.push(`Auction started for ${tile.name}!`);
   return { success: true };
@@ -567,7 +559,6 @@ function resolveCard(game, playerId) {
 
   const result = executeCard(game, player.id, card);
 
-  // Handle landing after card movement
   if (['move', 'moveRelative', 'nearest'].includes(card.action)) {
     const landing = handleLanding(game, player.id, game.dice[0] + game.dice[1]);
     return { success: true, result, landing };
@@ -589,12 +580,10 @@ function buildHouse(game, playerId, propertyId) {
   if (prop.hotel) return { success: false, message: 'Already has hotel' };
   if (prop.isMortgaged) return { success: false, message: 'Property mortgaged' };
 
-  // Even build rule
   const group = COLOR_GROUPS[tile.colorGroup];
   const minHouses = Math.min(...group.map(id => game.properties[id].houses));
   if (prop.houses > minHouses) return { success: false, message: 'Build evenly' };
 
-  // Check global limits
   const totalHouses = game.properties.reduce((sum, p) => sum + p.houses, 0);
   const totalHotels = game.properties.reduce((sum, p) => sum + (p.hotel ? 1 : 0), 0);
 
@@ -627,7 +616,6 @@ function sellHouse(game, playerId, propertyId) {
     player.money += tile.houseCost / 2;
     game.log.push(`${player.name} sold hotel on ${tile.name}.`);
   } else if (prop.houses > 0) {
-    // Even sell rule
     const group = COLOR_GROUPS[tile.colorGroup];
     const maxHouses = Math.max(...group.map(id => game.properties[id].houses));
     if (prop.houses < maxHouses) return { success: false, message: 'Sell evenly' };
@@ -680,7 +668,6 @@ function proposeTrade(game, fromId, toId, offerProps, offerMoney, requestProps, 
   if (!from || !to || from.isBankrupt || to.isBankrupt) return { success: false, message: 'Invalid players' };
   if (from.money < offerMoney) return { success: false, message: 'Not enough money' };
 
-  // Validate properties - mortgaged properties CAN be traded
   for (const pid of offerProps) {
     const prop = game.properties[pid];
     if (!prop || prop.ownerId !== fromId) return { success: false, message: 'You do not own a property' };
@@ -690,7 +677,7 @@ function proposeTrade(game, fromId, toId, offerProps, offerMoney, requestProps, 
     if (!prop || prop.ownerId !== toId) return { success: false, message: 'They do not own a property' };
   }
 
-    const mortgagedCount = [...offerProps, ...requestProps].filter(pid => game.properties[pid].isMortgaged).length;
+  const mortgagedCount = [...offerProps, ...requestProps].filter(pid => game.properties[pid].isMortgaged).length;
   
   game.pendingTrade = {
     fromId, toId, offerProps, offerMoney, requestProps, requestMoney,
@@ -719,7 +706,6 @@ function respondTrade(game, playerId, accept) {
     return { success: false, message: 'Insufficient funds' };
   }
 
-  // Execute trade
   from.money -= offerMoney;
   to.money += offerMoney;
   to.money -= requestMoney;
@@ -736,7 +722,7 @@ function respondTrade(game, playerId, accept) {
     from.properties.push(pid);
   });
 
-    const transferredMortgaged = [...offerProps, ...requestProps].filter(pid => game.properties[pid].isMortgaged);
+  const transferredMortgaged = [...offerProps, ...requestProps].filter(pid => game.properties[pid].isMortgaged);
   game.log.push(`${from.name} and ${to.name} completed a trade.${transferredMortgaged.length > 0 ? ` ${transferredMortgaged.length} mortgaged property(ies) transferred.` : ''}`);
   game.pendingTrade = null;
   return { success: true, accepted: true };
@@ -791,7 +777,7 @@ function getSanitizedState(game, requesterId = null) {
     dice: game.dice,
     turnPhase: game.turnPhase,
     pendingCard: game.pendingCard,
-        auction: game.auction ? {
+    auction: game.auction ? {
       propertyId: game.auction.propertyId,
       highestBid: game.auction.highestBid,
       highestBidder: game.auction.highestBidder,
@@ -814,6 +800,6 @@ module.exports = {
   handleRoll, buyProperty, startAuction, placeBid, endAuction,
   payJailFine, useJailCard, resolveCard,
   buildHouse, sellHouse, mortgageProperty, unmortgageProperty,
-  proposeTrade, respondTrade, endTurn, forceEndTurn,  // ← ADD forceEndTurn HERE
+  proposeTrade, respondTrade, endTurn, forceEndTurn,
   getSanitizedState, getCurrentPlayer, calculateRent, ownsMonopoly
 };
