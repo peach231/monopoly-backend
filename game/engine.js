@@ -736,7 +736,8 @@ function respondTrade(game, playerId, accept) {
     from.properties.push(pid);
   });
 
-  game.log.push(`${from.name} and ${to.name} completed a trade.`);
+    const transferredMortgaged = [...offerProps, ...requestProps].filter(pid => game.properties[pid].isMortgaged);
+  game.log.push(`${from.name} and ${to.name} completed a trade.${transferredMortgaged.length > 0 ? ` ${transferredMortgaged.length} mortgaged property(ies) transferred.` : ''}`);
   game.pendingTrade = null;
   return { success: true, accepted: true };
 }
