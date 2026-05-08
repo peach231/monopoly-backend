@@ -221,10 +221,14 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('endAuction', ({ roomCode, playerId }, callback) => {
+    socket.on('endAuction', ({ roomCode, playerId }, callback) => {
     try {
       const game = games.get(roomCode);
       if (!game) return callback({ success: false, message: 'Room not found' });
+      // Only allow ending if timer actually expired (prevent race conditions)
+      if (game.auction && Date.now() < game.auction.endTime) {
+        return callback({ success: false, message: 'Auction still active' });
+      }
       const result = endAuction(game, playerId);
       callback(result);
       if (result.success) safeBroadcast(roomCode);
