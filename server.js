@@ -221,11 +221,10 @@ io.on('connection', (socket) => {
     }
   });
 
-    socket.on('endAuction', ({ roomCode, playerId }, callback) => {
+  socket.on('endAuction', ({ roomCode, playerId }, callback) => {
     try {
       const game = games.get(roomCode);
       if (!game) return callback({ success: false, message: 'Room not found' });
-      // Only allow ending if timer actually expired (prevent race conditions)
       if (game.auction && Date.now() < game.auction.endTime) {
         return callback({ success: false, message: 'Auction still active' });
       }
@@ -412,6 +411,22 @@ io.on('connection', (socket) => {
         }
 
         safeBroadcast(mapping.roomCode);
+
+        const connectedCount = game.players.filter(p => p.isConnected).length;
+        if (connectedCount === 0) {
+          const roomCode = mapping.roomCode;
+          if (!disconnectTimers.has(roomCode + '_cleanup')) {
+            const cleanupTimer = setTimeout(() => {
+              const g = games.get(roomCode);
+              if (g && g.players.every(p => !p.isConnected)) {
+                games.delete(roomCode);
+                console.log(`Cleaned up empty room: ${roomCode}`);
+              }
+              disconnectTimers.delete(roomCode + '_cleanup');
+            }, 300000);
+            disconnectTimers.set(roomCode + '_cleanup', cleanupTimer);
+          }
+        }
       }
       socketToRoom.delete(socket.id);
       socketToPlayer.delete(socket.id);
