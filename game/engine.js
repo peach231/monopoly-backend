@@ -501,6 +501,7 @@ function placeBid(game, playerId, amount) {
   game.auction.bids.push({ playerId, amount });
   game.auction.highestBid = amount;
   game.auction.highestBidder = playerId;
+  game.auction.endTime = Date.now() + 5000;
   game.log.push(`${player.name} bid $${amount}.`);
   return { success: true };
 }
