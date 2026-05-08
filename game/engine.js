@@ -746,6 +746,22 @@ function endTurn(game, playerId) {
   return { success: true };
 }
 
+function forceEndTurn(game, requesterId) {
+  const requester = game.players.find(p => p.id === requesterId);
+  if (!requester || requester.isBankrupt) return { success: false, message: 'Invalid requester' };
+  
+  const currentPlayer = game.players[game.currentPlayerIndex];
+  if (!currentPlayer) return { success: false, message: 'No current player' };
+  
+  if (currentPlayer.isConnected) {
+    return { success: false, message: 'Current player is still connected' };
+  }
+  
+  game.log.push(`${requester.name} ended ${currentPlayer.name}'s turn (disconnected).`);
+  nextPlayer(game);
+  return { success: true };
+}
+
 function getSanitizedState(game, requesterId = null) {
   return {
     roomCode: game.roomCode,
@@ -786,6 +802,6 @@ module.exports = {
   handleRoll, buyProperty, startAuction, placeBid, endAuction,
   payJailFine, useJailCard, resolveCard,
   buildHouse, sellHouse, mortgageProperty, unmortgageProperty,
-  proposeTrade, respondTrade, endTurn,
+  proposeTrade, respondTrade, endTurn, forceEndTurn,  // ← ADD forceEndTurn HERE
   getSanitizedState, getCurrentPlayer, calculateRent, ownsMonopoly
 };
