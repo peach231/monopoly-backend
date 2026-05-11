@@ -166,13 +166,11 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('rollDice', ({ roomCode, playerId, turnSequence }, callback) => {
+  // FIX: Removed stale turnSequence check that was blocking valid rolls
+  socket.on('rollDice', ({ roomCode, playerId }, callback) => {
     try {
       const game = games.get(roomCode);
       if (!game) return callback({ success: false, message: 'Room not found' });
-      if (turnSequence !== undefined && turnSequence !== game.turnSequence) {
-        return callback({ success: false, message: 'Stale turn' });
-      }
       const result = handleRoll(game, playerId);
       callback(result);
       if (result.success) safeBroadcast(roomCode);
