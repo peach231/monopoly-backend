@@ -106,11 +106,11 @@ const COMMUNITY_CHEST_CARDS = [
   { id: "cc24", text: "VIP lounge pass: Collect $30", action: "money", amount: 30 }
 ];
 
-const TOKENS = ["backpack", "textbooks", "graduation-hat", "pencil"];
+const TOKENS = ["backpack", "textbooks", "graduation-hat", "pencil", "compass", "suitcase"];
 const STARTING_MONEY = 1500;
 const SALARY = 200;
 const JAIL_FINE = 50;
-const MAX_PLAYERS = 4;
+const MAX_PLAYERS = 6;
 const MAX_HOUSES = 32;
 const MAX_HOTELS = 12;
 
