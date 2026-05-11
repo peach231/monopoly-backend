@@ -65,7 +65,7 @@ function joinGame(game, playerName) {
 
   const takenTokens = game.players.map(p => p.token);
   const token = TOKENS.find(t => !takenTokens.includes(t));
-  const colors = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12'];
+  const colors = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c'];
 
   const player = {
     id: uuidv4(),
