@@ -43,9 +43,9 @@ const io = new Server(server, {
     methods: ['GET', 'POST'],
     credentials: true
   },
-  pingTimeout: 120000,
-  pingInterval: 30000,
-  connectTimeout: 45000,
+  pingTimeout: 30000,
+  pingInterval: 15000,
+  connectTimeout: 20000,
   transports: ['websocket', 'polling'],
   allowUpgrades: true
 });
@@ -69,8 +69,12 @@ function broadcastGameState(roomCode) {
   if (!game) return;
   game.players.forEach(p => {
     if (p.socketId && p.isConnected) {
-      const state = getSanitizedState(game, p.id);
-      io.to(p.socketId).emit('gameState', state);
+      try {
+        const state = getSanitizedState(game, p.id);
+        io.to(p.socketId).emit('gameState', state);
+      } catch (err) {
+        console.error('Broadcast error to', p.socketId, err.message);
+      }
     }
   });
 }
@@ -80,6 +84,13 @@ function safeBroadcast(roomCode) {
     broadcastGameState(roomCode);
   } catch (err) {
     console.error('Broadcast error:', err);
+  }
+}
+
+function clearDisconnectTimer(roomCode) {
+  if (disconnectTimers.has(roomCode)) {
+    clearTimeout(disconnectTimers.get(roomCode));
+    disconnectTimers.delete(roomCode);
   }
 }
 
@@ -104,7 +115,7 @@ io.on('connection', (socket) => {
       callback({ success: true, roomCode, playerId: hostId });
       safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('createRoom error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -113,32 +124,39 @@ io.on('connection', (socket) => {
     try {
       const game = games.get(roomCode);
       if (!game) {
-        callback({ success: false, message: 'Room not found' });
+        callback({ success: false, message: 'Room not found or expired' });
         return;
       }
+
+      // CASE 1: Reconnecting with existing playerId
       if (playerId) {
         const existing = game.players.find(p => p.id === playerId);
         if (existing) {
-          const result = rejoinGame(game, playerId, socket.id);
-          if (result.success) {
-            if (disconnectTimers.has(roomCode)) {
-              clearTimeout(disconnectTimers.get(roomCode));
-              disconnectTimers.delete(roomCode);
-            }
-            socket.join(roomCode);
-            socketToRoom.set(socket.id, roomCode);
-            socketToPlayer.set(socket.id, { roomCode, playerId });
-            callback({ success: true, roomCode, playerId, reconnected: true });
-            safeBroadcast(roomCode);
-            return;
-          }
+          existing.socketId = socket.id;
+          existing.isConnected = true;
+          clearDisconnectTimer(roomCode);
+          socket.join(roomCode);
+          socketToRoom.set(socket.id, roomCode);
+          socketToPlayer.set(socket.id, { roomCode, playerId });
+          game.log.push(`${existing.name} reconnected.`);
+          callback({ success: true, roomCode, playerId, reconnected: true });
+          safeBroadcast(roomCode);
+          return;
         }
       }
+
+      // CASE 2: New player joining
+      if (game.status !== 'waiting') {
+        callback({ success: false, message: 'Game already started' });
+        return;
+      }
+
       const result = joinGame(game, playerName);
       if (!result.success) {
         callback({ success: false, message: result.message });
         return;
       }
+
       const player = game.players.find(p => p.id === result.playerId);
       player.socketId = socket.id;
       player.isConnected = true;
@@ -148,7 +166,7 @@ io.on('connection', (socket) => {
       callback({ success: true, roomCode, playerId: result.playerId });
       safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('joinRoom error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -161,7 +179,7 @@ io.on('connection', (socket) => {
       callback(result);
       if (result.success) safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('startGame error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -177,7 +195,7 @@ io.on('connection', (socket) => {
       callback(result);
       if (result.success) safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('rollDice error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -190,7 +208,7 @@ io.on('connection', (socket) => {
       callback(result);
       if (result.success) safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('buyProperty error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -203,7 +221,7 @@ io.on('connection', (socket) => {
       callback(result);
       if (result.success) safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('startAuction error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -216,7 +234,7 @@ io.on('connection', (socket) => {
       callback(result);
       if (result.success) safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('placeBid error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -232,7 +250,7 @@ io.on('connection', (socket) => {
       callback(result);
       if (result.success) safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('endAuction error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -245,7 +263,7 @@ io.on('connection', (socket) => {
       callback(result);
       if (result.success) safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('payJailFine error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -258,7 +276,7 @@ io.on('connection', (socket) => {
       callback(result);
       if (result.success) safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('useJailCard error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -271,7 +289,7 @@ io.on('connection', (socket) => {
       callback(result);
       if (result.success) safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('resolveCard error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -284,7 +302,7 @@ io.on('connection', (socket) => {
       callback(result);
       if (result.success) safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('buildHouse error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -297,7 +315,7 @@ io.on('connection', (socket) => {
       callback(result);
       if (result.success) safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('sellHouse error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -310,7 +328,7 @@ io.on('connection', (socket) => {
       callback(result);
       if (result.success) safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('mortgageProperty error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -323,7 +341,7 @@ io.on('connection', (socket) => {
       callback(result);
       if (result.success) safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('unmortgageProperty error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -336,7 +354,7 @@ io.on('connection', (socket) => {
       callback(result);
       if (result.success) safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('proposeTrade error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -349,7 +367,7 @@ io.on('connection', (socket) => {
       callback(result);
       if (result.success) safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('respondTrade error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -362,7 +380,7 @@ io.on('connection', (socket) => {
       callback(result);
       if (result.success) safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('endTurn error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -375,7 +393,38 @@ io.on('connection', (socket) => {
       callback(result);
       if (result.success) safeBroadcast(roomCode);
     } catch (err) {
-      console.error(err);
+      console.error('forceEndTurn error:', err);
+      callback({ success: false, message: err.message });
+    }
+  });
+
+  socket.on('rejoinRoom', ({ roomCode, playerId, playerName }, callback) => {
+    try {
+      const game = games.get(roomCode);
+      if (!game) {
+        return callback({ success: false, message: 'Room not found or expired' });
+      }
+
+      const player = game.players.find(p => p.id === playerId);
+      if (!player) {
+        return callback({ success: false, message: 'Player not found in this room' });
+      }
+
+      player.socketId = socket.id;
+      player.isConnected = true;
+      clearDisconnectTimer(roomCode);
+      socket.join(roomCode);
+      socketToRoom.set(socket.id, roomCode);
+      socketToPlayer.set(socket.id, { roomCode, playerId });
+      game.log.push(`${player.name} reconnected.`);
+
+      const state = getSanitizedState(game, playerId);
+      socket.emit('gameState', state);
+      safeBroadcast(roomCode);
+
+      callback({ success: true });
+    } catch (err) {
+      console.error('rejoinRoom error:', err);
       callback({ success: false, message: err.message });
     }
   });
@@ -386,28 +435,30 @@ io.on('connection', (socket) => {
     if (mapping) {
       const game = games.get(mapping.roomCode);
       if (game) {
-        disconnectPlayer(game, socket.id);
+        const player = game.players.find(p => p.id === mapping.playerId);
+        if (player && player.socketId === socket.id) {
+          player.isConnected = false;
+          game.log.push(`${player.name} disconnected.`);
 
-        const currentPlayer = game.players[game.currentPlayerIndex];
-        const dcPlayer = game.players.find(p => p.socketId === socket.id);
-        if (dcPlayer && currentPlayer && dcPlayer.id === currentPlayer.id && game.status === 'playing') {
-          if (disconnectTimers.has(mapping.roomCode)) {
-            clearTimeout(disconnectTimers.get(mapping.roomCode));
-          }
-          const timer = setTimeout(() => {
-            const g = games.get(mapping.roomCode);
-            if (!g) return;
-            const cp = g.players[g.currentPlayerIndex];
-            if (cp && !cp.isConnected) {
-              const requester = g.players.find(p => p.isConnected && !p.isBankrupt && p.id !== cp.id);
-              if (requester) {
-                const r = forceEndTurn(g, requester.id);
-                if (r.success) safeBroadcast(mapping.roomCode);
+          const currentPlayer = game.players[game.currentPlayerIndex];
+          if (currentPlayer && player.id === currentPlayer.id && game.status === 'playing') {
+            clearDisconnectTimer(mapping.roomCode);
+
+            const timer = setTimeout(() => {
+              const g = games.get(mapping.roomCode);
+              if (!g) return;
+              const cp = g.players[g.currentPlayerIndex];
+              if (cp && !cp.isConnected) {
+                const requester = g.players.find(p => p.isConnected && !p.isBankrupt && p.id !== cp.id);
+                if (requester) {
+                  const r = forceEndTurn(g, requester.id);
+                  if (r.success) safeBroadcast(mapping.roomCode);
+                }
               }
-            }
-            disconnectTimers.delete(mapping.roomCode);
-          }, 15000);
-          disconnectTimers.set(mapping.roomCode, timer);
+              disconnectTimers.delete(mapping.roomCode);
+            }, 15000);
+            disconnectTimers.set(mapping.roomCode, timer);
+          }
         }
 
         safeBroadcast(mapping.roomCode);
@@ -415,16 +466,17 @@ io.on('connection', (socket) => {
         const connectedCount = game.players.filter(p => p.isConnected).length;
         if (connectedCount === 0) {
           const roomCode = mapping.roomCode;
-          if (!disconnectTimers.has(roomCode + '_cleanup')) {
+          const cleanupKey = roomCode + '_cleanup';
+          if (!disconnectTimers.has(cleanupKey)) {
             const cleanupTimer = setTimeout(() => {
               const g = games.get(roomCode);
               if (g && g.players.every(p => !p.isConnected)) {
                 games.delete(roomCode);
                 console.log(`Cleaned up empty room: ${roomCode}`);
               }
-              disconnectTimers.delete(roomCode + '_cleanup');
+              disconnectTimers.delete(cleanupKey);
             }, 300000);
-            disconnectTimers.set(roomCode + '_cleanup', cleanupTimer);
+            disconnectTimers.set(cleanupKey, cleanupTimer);
           }
         }
       }
