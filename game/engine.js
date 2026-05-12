@@ -157,9 +157,9 @@ function calculateRent(game, propertyId, diceSum = 0) {
     const ownsAll = group.every(id => game.properties[id].ownerId === prop.ownerId);
     return ownsAll ? tile.rent[0] * 2 : tile.rent[0];
   }
-  if (tile.type === 'railroad') {
-    const railroads = [5, 15, 25, 35].filter(id => game.properties[id].ownerId === prop.ownerId);
-    return 25 * Math.pow(2, railroads.length - 1);
+  if (tile.type === 'airport') {
+    const airports = [5, 15, 25, 35].filter(id => game.properties[id].ownerId === prop.ownerId);
+    return 25 * Math.pow(2, airports.length - 1);
   }
   if (tile.type === 'utility') {
     const utilities = [12, 28].filter(id => game.properties[id].ownerId === prop.ownerId);
