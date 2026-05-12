@@ -366,7 +366,6 @@ function checkBankruptcy(game, playerId) {
   return true;
 }
 
-// FIX: Rewrote handleRoll to properly handle all edge cases and ensure turnPhase is always correct
 function handleRoll(game, playerId) {
   if (game.status !== 'playing') return { success: false, message: 'Game not in progress' };
   if (getCurrentPlayer(game).id !== playerId) return { success: false, message: 'Not your turn' };
@@ -379,27 +378,22 @@ function handleRoll(game, playerId) {
 
   game.log.push(`${player.name} rolled ${game.dice[0]} and ${game.dice[1]}.`);
 
-  // JAIL LOGIC
   if (player.inJail) {
     if (isDouble) {
-      // Escaped jail with doubles — move normally, then get extra roll
       player.inJail = false;
       player.jailTurns = 0;
       game.log.push(`${player.name} rolled doubles and escaped Jail!`);
       movePlayer(game, playerId, (player.position + sum) % 40);
       const result = handleLanding(game, playerId, sum);
       game.extraRoll = true;
-      game.doublesCount = 0; // reset since this is a fresh roll after jail
-      // If landing didn't set phase to buy, allow extra roll
+      game.doublesCount = 0;
       if (game.turnPhase !== 'buy') {
         game.turnPhase = 'roll';
       }
       return { success: true, dice: game.dice, ...result };
     } else {
-      // No doubles — increment jail turn
       player.jailTurns++;
       if (player.jailTurns >= 3) {
-        // Must pay fine and move
         player.money -= JAIL_FINE;
         game.freeParkingMoney += JAIL_FINE;
         player.inJail = false;
@@ -409,7 +403,6 @@ function handleRoll(game, playerId) {
         const result = handleLanding(game, playerId, sum);
         return { success: true, dice: game.dice, ...result };
       }
-      // Still in jail, turn ends
       game.turnPhase = 'end';
       game.extraRoll = false;
       game.doublesCount = 0;
@@ -417,11 +410,9 @@ function handleRoll(game, playerId) {
     }
   }
 
-  // NORMAL ROLL (not in jail)
   if (isDouble) {
     game.doublesCount++;
     if (game.doublesCount >= 3) {
-      // 3 doubles = go to jail
       player.position = 10;
       player.inJail = true;
       player.jailTurns = 0;
@@ -437,11 +428,9 @@ function handleRoll(game, playerId) {
     game.extraRoll = false;
   }
 
-  // Move the player
   movePlayer(game, playerId, (player.position + sum) % 40);
   const result = handleLanding(game, playerId, sum);
 
-  // If we got an extra roll but landing didn't require a buy/auction/card, stay in roll phase
   if (game.extraRoll && game.turnPhase !== 'buy' && !game.pendingCard && game.turnPhase !== 'auction') {
     game.turnPhase = 'roll';
   }
@@ -674,9 +663,7 @@ function unmortgageProperty(game, playerId, propertyId) {
   return { success: true };
 }
 
-// FIX: Rewrote proposeTrade to properly validate and handle edge cases
 function proposeTrade(game, fromId, toId, offerProps, offerMoney, requestProps, requestMoney) {
-  // Block trades during auction or if another trade is pending
   if (game.turnPhase === 'auction') return { success: false, message: 'Cannot trade during auction' };
   if (game.pendingTrade) return { success: false, message: 'Another trade is pending' };
   
@@ -686,19 +673,16 @@ function proposeTrade(game, fromId, toId, offerProps, offerMoney, requestProps, 
   if (from.money < offerMoney) return { success: false, message: 'Not enough money' };
   if (to.money < requestMoney) return { success: false, message: 'Recipient does not have enough money' };
 
-  // Validate offer properties belong to sender
   for (const pid of offerProps) {
     const prop = game.properties[pid];
     if (!prop || prop.ownerId !== fromId) return { success: false, message: 'You do not own a property' };
   }
   
-  // Validate request properties belong to recipient
   for (const pid of requestProps) {
     const prop = game.properties[pid];
     if (!prop || prop.ownerId !== toId) return { success: false, message: 'They do not own a property' };
   }
 
-  // Check that at least something is being exchanged
   if (offerProps.length === 0 && requestProps.length === 0 && offerMoney === 0 && requestMoney === 0) {
     return { success: false, message: 'Trade must include at least one item' };
   }
@@ -713,7 +697,6 @@ function proposeTrade(game, fromId, toId, offerProps, offerMoney, requestProps, 
   return { success: true };
 }
 
-// FIX: Rewrote respondTrade to properly handle failures and property transfers
 function respondTrade(game, playerId, accept) {
   if (!game.pendingTrade) return { success: false, message: 'No pending trade' };
   if (game.pendingTrade.toId !== playerId) return { success: false, message: 'Not your trade' };
@@ -728,26 +711,21 @@ function respondTrade(game, playerId, accept) {
   const from = game.players.find(p => p.id === fromId);
   const to = game.players.find(p => p.id === toId);
 
-  // Double-check funds before executing
   if (from.money < offerMoney || to.money < requestMoney) {
     game.pendingTrade = null;
     return { success: false, message: 'Insufficient funds' };
   }
 
-  // Execute money transfer
   from.money -= offerMoney;
   to.money += offerMoney;
   to.money -= requestMoney;
   from.money += requestMoney;
 
-  // FIX: Transfer properties safely using a helper to avoid array mutation issues
   const transferProperty = (propId, newOwnerId, oldOwner, newOwner) => {
     const prop = game.properties[propId];
     prop.ownerId = newOwnerId;
-    // Remove from old owner's properties array
     const oldIdx = oldOwner.properties.indexOf(propId);
     if (oldIdx > -1) oldOwner.properties.splice(oldIdx, 1);
-    // Add to new owner's properties array
     if (!newOwner.properties.includes(propId)) newOwner.properties.push(propId);
   };
 
