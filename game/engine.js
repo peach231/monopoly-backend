@@ -277,7 +277,7 @@ function handleLanding(game, playerId, diceSum) {
   const tile = BOARD_TILES[player.position];
   const prop = game.properties[player.position];
 
-  if (tile.type === 'property' || tile.type === 'railroad' || tile.type === 'utility') {
+    if (tile.type === 'property' || tile.type === 'airport' || tile.type === 'utility') {
     if (prop.ownerId && prop.ownerId !== playerId && !prop.isMortgaged) {
       const rent = calculateRent(game, player.position, diceSum);
       if (rent > 0) {
