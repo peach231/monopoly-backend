@@ -1,4 +1,5 @@
 const { v4: uuidv4 } = require('uuid');
+const { censorMessage } = require('./chatFilter');
 const {
   BOARD_TILES, COLOR_GROUPS, CHANCE_CARDS, COMMUNITY_CHEST_CARDS,
   TOKENS, STARTING_MONEY, SALARY, JAIL_FINE, MAX_PLAYERS, MAX_HOUSES, MAX_HOTELS
@@ -816,11 +817,14 @@ function sendChatMessage(game, playerId, text) {
   const trimmed = text.trim();
   if (trimmed.length > 200) return { success: false, message: 'Message too long' };
 
+  // Server-side censor (backup — client already filtered, but can't be bypassed)
+  const { censored } = censorMessage(trimmed);
+
   const message = {
     id: uuidv4(),
     playerId: player.id,
     playerName: player.name,
-    text: trimmed,
+    text: censored,
     timestamp: Date.now(),
     type: 'chat'
   };
