@@ -9,7 +9,7 @@ const {
   payJailFine, useJailCard, resolveCard,
   buildHouse, sellHouse, mortgageProperty, unmortgageProperty,
   proposeTrade, respondTrade, endTurn, forceEndTurn,
-  getSanitizedState
+  sendChatMessage, getSanitizedState
 } = require('./game/engine');
 
 const app = express();
@@ -398,6 +398,19 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('sendMessage', ({ roomCode, playerId, text }, callback) => {
+    try {
+      const game = games.get(roomCode);
+      if (!game) return callback({ success: false, message: 'Room not found' });
+      const result = sendChatMessage(game, playerId, text);
+      callback(result);
+      if (result.success) safeBroadcast(roomCode);
+    } catch (err) {
+      console.error('sendMessage error:', err);
+      callback({ success: false, message: err.message });
+    }
+  });
+
   socket.on('rejoinRoom', ({ roomCode, playerId, playerName }, callback) => {
     try {
       const game = games.get(roomCode);
@@ -417,6 +430,14 @@ io.on('connection', (socket) => {
       socketToRoom.set(socket.id, roomCode);
       socketToPlayer.set(socket.id, { roomCode, playerId });
       game.log.push(`${player.name} reconnected.`);
+      game.chatMessages.push({
+        id: require('uuid').v4(),
+        playerId: player.id,
+        playerName: player.name,
+        text: `${player.name} reconnected`,
+        timestamp: Date.now(),
+        type: 'system'
+      });
 
       const state = getSanitizedState(game, playerId);
       socket.emit('gameState', state);
@@ -439,6 +460,14 @@ io.on('connection', (socket) => {
         if (player && player.socketId === socket.id) {
           player.isConnected = false;
           game.log.push(`${player.name} disconnected.`);
+          game.chatMessages.push({
+            id: require('uuid').v4(),
+            playerId: player.id,
+            playerName: player.name,
+            text: `${player.name} disconnected`,
+            timestamp: Date.now(),
+            type: 'system'
+          });
 
           const currentPlayer = game.players[game.currentPlayerIndex];
           if (currentPlayer && player.id === currentPlayer.id && game.status === 'playing') {
