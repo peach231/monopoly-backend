@@ -54,7 +54,8 @@ function createGame(roomCode, hostName) {
     communityChestDiscard: [],
     turnSequence: 0,
     extraRoll: false,
-    log: [`Room ${roomCode} created. Waiting for players...`]
+    log: [`Room ${roomCode} created. Waiting for players...`],
+    chatMessages: []
   };
   return { game, hostId };
 }
@@ -800,9 +801,37 @@ function getSanitizedState(game, requesterId = null) {
     } : null,
     freeParkingMoney: game.freeParkingMoney,
     log: game.log.slice(-20),
+    chatMessages: game.chatMessages.slice(-50),
     turnSequence: game.turnSequence,
     extraRoll: game.extraRoll
   };
+}
+
+
+function sendChatMessage(game, playerId, text) {
+  const player = game.players.find(p => p.id === playerId);
+  if (!player) return { success: false, message: 'Player not found' };
+  if (!text || !text.trim()) return { success: false, message: 'Empty message' };
+
+  const trimmed = text.trim();
+  if (trimmed.length > 200) return { success: false, message: 'Message too long' };
+
+  const message = {
+    id: uuidv4(),
+    playerId: player.id,
+    playerName: player.name,
+    text: trimmed,
+    timestamp: Date.now(),
+    type: 'chat'
+  };
+
+  game.chatMessages.push(message);
+  // Keep only last 100 messages
+  if (game.chatMessages.length > 100) {
+    game.chatMessages = game.chatMessages.slice(-100);
+  }
+
+  return { success: true, message };
 }
 
 module.exports = {
@@ -811,5 +840,6 @@ module.exports = {
   payJailFine, useJailCard, resolveCard,
   buildHouse, sellHouse, mortgageProperty, unmortgageProperty,
   proposeTrade, respondTrade, endTurn, forceEndTurn,
+  sendChatMessage,
   getSanitizedState, getCurrentPlayer, calculateRent, ownsMonopoly
 };
