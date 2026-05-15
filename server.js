@@ -9,7 +9,7 @@ const {
   payJailFine, useJailCard, resolveCard,
   buildHouse, sellHouse, mortgageProperty, unmortgageProperty,
   proposeTrade, respondTrade, endTurn, forceEndTurn,
-  sendChatMessage, getSanitizedState
+  sendChatMessage, setAutoMortgage, getSanitizedState
 } = require('./game/engine');
 
 const app = express();
@@ -407,6 +407,19 @@ io.on('connection', (socket) => {
       if (result.success) safeBroadcast(roomCode);
     } catch (err) {
       console.error('sendMessage error:', err);
+      callback({ success: false, message: err.message });
+    }
+  });
+
+  socket.on('setAutoMortgage', ({ roomCode, playerId, enabled }, callback) => {
+    try {
+      const game = games.get(roomCode);
+      if (!game) return callback({ success: false, message: 'Room not found' });
+      const result = setAutoMortgage(game, playerId, !!enabled);
+      callback(result);
+      if (result.success) safeBroadcast(roomCode);
+    } catch (err) {
+      console.error('setAutoMortgage error:', err);
       callback({ success: false, message: err.message });
     }
   });
