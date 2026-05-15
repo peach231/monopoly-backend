@@ -59,7 +59,10 @@ function createGame(roomCode, hostName) {
       jailCards: 0,
       isBankrupt: false,
       isConnected: false,
-      color: '#e74c3c'
+      color: '#e74c3c',
+      autoMortgage: false,
+      inDebt: false,
+      debtAmount: 0
     }],
     properties: BOARD_TILES.map(t => ({
       id: t.id,
@@ -109,7 +112,10 @@ function joinGame(game, playerName) {
     jailCards: 0,
     isBankrupt: false,
     isConnected: false,
-    color: colors[game.players.length]
+    color: colors[game.players.length],
+    autoMortgage: false,
+    inDebt: false,
+    debtAmount: 0
   };
   game.players.push(player);
   game.log.push(`${player.name} joined the game.`);
@@ -362,20 +368,74 @@ function handleLanding(game, playerId, diceSum) {
   return { action: 'landed' };
 }
 
-function checkBankruptcy(game, playerId) {
+// Total liquidation value if player sold/mortgaged everything.
+// Used to determine if a player is mathematically able to recover from debt.
+function calculateTotalAssets(game, playerId) {
   const player = game.players.find(p => p.id === playerId);
-  if (player.money >= 0) return false;
+  if (!player) return 0;
+  let assets = player.money; // can be negative
+  game.properties.forEach(prop => {
+    if (prop.ownerId !== playerId) return;
+    const tile = BOARD_TILES[prop.id];
+    if (!prop.isMortgaged) {
+      assets += tile.mortgageValue || 0;
+    }
+    // Houses & hotels sell at half cost
+    if (tile.houseCost) {
+      if (prop.hotel) {
+        // Hotel = 4 houses + 1 hotel piece, sells for 5 * houseCost/2
+        assets += 5 * (tile.houseCost / 2);
+      } else if (prop.houses > 0) {
+        assets += prop.houses * (tile.houseCost / 2);
+      }
+    }
+  });
+  return assets;
+}
 
-  const playerProps = game.properties.filter(p => p.ownerId === playerId && !p.isMortgaged && p.houses === 0 && !p.hotel);
-  for (const prop of playerProps) {
+function autoMortgageAll(game, playerId) {
+  const player = game.players.find(p => p.id === playerId);
+  // First sell all houses/hotels, then mortgage unmortgaged props.
+  // We try to recover to >= 0; we always liquidate everything possible if needed.
+  const playerOwnedProps = game.properties.filter(p => p.ownerId === playerId);
+
+  // Sell houses/hotels first (highest-rent properties last would be ideal,
+  // but for simplicity we go in order and only stop when we're back to >=0)
+  for (const prop of playerOwnedProps) {
+    const tile = BOARD_TILES[prop.id];
+    while (prop.hotel || prop.houses > 0) {
+      if (prop.hotel) {
+        prop.hotel = false;
+        prop.houses = 4;
+        player.money += tile.houseCost / 2;
+        game.log.push(`${player.name} sold hotel on ${tile.name} (auto).`);
+      } else if (prop.houses > 0) {
+        prop.houses--;
+        player.money += tile.houseCost / 2;
+        game.log.push(`${player.name} sold a house on ${tile.name} (auto).`);
+      }
+      if (player.money >= 0) return;
+    }
+  }
+
+  // Then mortgage properties
+  for (const prop of playerOwnedProps) {
+    if (prop.isMortgaged || prop.houses > 0 || prop.hotel) continue;
     const tile = BOARD_TILES[prop.id];
     prop.isMortgaged = true;
     player.money += tile.mortgageValue;
     game.log.push(`${player.name} auto-mortgaged ${tile.name} for $${tile.mortgageValue}.`);
-    if (player.money >= 0) return false;
+    if (player.money >= 0) return;
   }
+}
+
+function declareBankruptcy(game, playerId) {
+  const player = game.players.find(p => p.id === playerId);
+  if (!player || player.isBankrupt) return;
 
   player.isBankrupt = true;
+  player.inDebt = false;
+  player.debtAmount = 0;
   game.log.push(`${player.name} went bankrupt!`);
 
   game.properties.forEach(p => {
@@ -392,7 +452,98 @@ function checkBankruptcy(game, playerId) {
     game.status = 'ended';
     game.log.push(`${alive[0].name} wins the game!`);
   }
-  return true;
+}
+
+// Returns true if player became bankrupt or had debt resolved/applied.
+function checkBankruptcy(game, playerId) {
+  const player = game.players.find(p => p.id === playerId);
+  if (!player || player.isBankrupt) return false;
+  if (player.money >= 0) {
+    // No longer in debt
+    if (player.inDebt) {
+      player.inDebt = false;
+      player.debtAmount = 0;
+      game.log.push(`${player.name} is no longer in debt.`);
+    }
+    return false;
+  }
+
+  // Player is in the red. Check if they can mathematically recover at all.
+  const totalAssets = calculateTotalAssets(game, playerId);
+  if (totalAssets < 0) {
+    // Mathematically impossible to recover - auto-bankrupt regardless of autoMortgage setting
+    game.log.push(`${player.name} cannot cover debts even by selling everything.`);
+    declareBankruptcy(game, playerId);
+    return true;
+  }
+
+  if (player.autoMortgage) {
+    // Auto-mortgage / auto-sell their way back to >= 0
+    autoMortgageAll(game, playerId);
+    if (player.money < 0) {
+      // Couldn't recover even with auto-liquidation - bankrupt
+      declareBankruptcy(game, playerId);
+      return true;
+    }
+    if (player.inDebt) {
+      player.inDebt = false;
+      player.debtAmount = 0;
+    }
+    return false;
+  }
+
+  // Manual mode: put player into debt state. They can't roll until they recover.
+  player.inDebt = true;
+  player.debtAmount = -player.money;
+  game.log.push(`${player.name} owes $${player.debtAmount}. They must trade, mortgage, or sell to recover.`);
+  return false;
+}
+
+// Called after any action that changes player money (mortgage, sell, trade, etc).
+// If they were in debt and now recovered, clear the flag. If still in debt but
+// no longer mathematically recoverable, auto-bankrupt.
+function reevaluateDebt(game, playerId) {
+  const player = game.players.find(p => p.id === playerId);
+  if (!player || player.isBankrupt) return;
+  if (!player.inDebt && player.money >= 0) return;
+
+  if (player.money >= 0) {
+    if (player.inDebt) {
+      player.inDebt = false;
+      player.debtAmount = 0;
+      game.log.push(`${player.name} is no longer in debt.`);
+    }
+    return;
+  }
+
+  // Still in red
+  player.inDebt = true;
+  player.debtAmount = -player.money;
+
+  const totalAssets = calculateTotalAssets(game, playerId);
+  if (totalAssets < 0) {
+    game.log.push(`${player.name} cannot cover debts even by selling everything.`);
+    declareBankruptcy(game, playerId);
+  }
+}
+
+function setAutoMortgage(game, playerId, enabled) {
+  const player = game.players.find(p => p.id === playerId);
+  if (!player) return { success: false, message: 'Player not found' };
+  player.autoMortgage = !!enabled;
+  game.log.push(`${player.name} ${enabled ? 'enabled' : 'disabled'} auto-mortgage.`);
+
+  // If they enable auto-mortgage while currently in debt, immediately try to resolve.
+  if (enabled && player.inDebt && !player.isBankrupt) {
+    autoMortgageAll(game, playerId);
+    if (player.money < 0) {
+      declareBankruptcy(game, playerId);
+    } else {
+      player.inDebt = false;
+      player.debtAmount = 0;
+    }
+  }
+  return { success: true };
 }
 
 function handleRoll(game, playerId) {
@@ -401,6 +552,9 @@ function handleRoll(game, playerId) {
   if (game.turnPhase !== 'roll' && game.turnPhase !== 'jailRoll') return { success: false, message: 'Cannot roll now' };
 
   const player = getCurrentPlayer(game);
+  if (player.inDebt) {
+    return { success: false, message: `You owe $${player.debtAmount}. Trade, mortgage, or sell properties before rolling.` };
+  }
   game.dice = rollDice();
   const sum = game.dice[0] + game.dice[1];
   const isDouble = game.dice[0] === game.dice[1];
@@ -612,8 +766,18 @@ function buildHouse(game, playerId, propertyId) {
   if (prop.isMortgaged) return { success: false, message: 'Property mortgaged' };
 
   const group = COLOR_GROUPS[tile.colorGroup];
-  const minHouses = Math.min(...group.map(id => game.properties[id].houses));
-  if (prop.houses > minHouses) return { success: false, message: 'Build evenly' };
+
+  // BUGFIX: a hotel represents level 5 (4 houses + 1 hotel). Treating it as
+  // houses=0 caused minLevel to drop to 0 once one property got a hotel,
+  // making "build evenly" reject upgrades on the rest of the color group.
+  const buildingLevel = (p) => p.hotel ? 5 : p.houses;
+  const minLevel = Math.min(...group.map(id => buildingLevel(game.properties[id])));
+  const myLevel = buildingLevel(prop);
+  if (myLevel > minLevel) return { success: false, message: 'Build evenly' };
+
+  // Also: any property mortgaged in the group blocks building (standard rule).
+  const anyMortgaged = group.some(id => game.properties[id].isMortgaged);
+  if (anyMortgaged) return { success: false, message: 'Unmortgage all properties in this group first' };
 
   const totalHouses = game.properties.reduce((sum, p) => sum + p.houses, 0);
   const totalHotels = game.properties.reduce((sum, p) => sum + (p.hotel ? 1 : 0), 0);
@@ -641,15 +805,23 @@ function sellHouse(game, playerId, propertyId) {
   const tile = BOARD_TILES[propertyId];
 
   if (prop.ownerId !== playerId) return { success: false, message: 'Not your property' };
+
+  // For even-sell check, treat a hotel as 5 "levels" so a hotel doesn't break
+  // the rule when an adjacent property has 4 houses.
+  const buildingLevel = (p) => p.hotel ? 5 : p.houses;
+
   if (prop.hotel) {
+    // No "sell evenly" restriction needed here: a hotel is the max level (5),
+    // selling it brings the property down to 4 houses, which is always >= every
+    // other property in the group (since 4 is the max non-hotel level).
     prop.hotel = false;
     prop.houses = 4;
     player.money += tile.houseCost / 2;
     game.log.push(`${player.name} sold hotel on ${tile.name}.`);
   } else if (prop.houses > 0) {
     const group = COLOR_GROUPS[tile.colorGroup];
-    const maxHouses = Math.max(...group.map(id => game.properties[id].houses));
-    if (prop.houses < maxHouses) return { success: false, message: 'Sell evenly' };
+    const maxLevel = Math.max(...group.map(id => buildingLevel(game.properties[id])));
+    if (prop.houses < maxLevel) return { success: false, message: 'Sell evenly' };
 
     prop.houses--;
     player.money += tile.houseCost / 2;
@@ -657,6 +829,7 @@ function sellHouse(game, playerId, propertyId) {
   } else {
     return { success: false, message: 'No houses to sell' };
   }
+  reevaluateDebt(game, playerId);
   return { success: true };
 }
 
@@ -672,6 +845,7 @@ function mortgageProperty(game, playerId, propertyId) {
   prop.isMortgaged = true;
   player.money += tile.mortgageValue;
   game.log.push(`${player.name} mortgaged ${tile.name} for $${tile.mortgageValue}.`);
+  reevaluateDebt(game, playerId);
   return { success: true };
 }
 
@@ -764,6 +938,9 @@ function respondTrade(game, playerId, accept) {
   const transferredMortgaged = [...offerProps, ...requestProps].filter(pid => game.properties[pid].isMortgaged);
   game.log.push(`${from.name} and ${to.name} completed a trade.${transferredMortgaged.length > 0 ? ` ${transferredMortgaged.length} mortgaged property(ies) transferred.` : ''}`);
   game.pendingTrade = null;
+  // A trade can rescue a player out of debt or push the other into it
+  reevaluateDebt(game, fromId);
+  reevaluateDebt(game, toId);
   return { success: true, accepted: true };
 }
 
@@ -772,6 +949,11 @@ function endTurn(game, playerId) {
   if (game.turnPhase === 'auction') return { success: false, message: 'End auction first' };
   if (game.turnPhase === 'buy') return { success: false, message: 'Buy or auction first' };
   if (game.pendingCard) return { success: false, message: 'Resolve card first' };
+
+  const player = getCurrentPlayer(game);
+  if (player.inDebt) {
+    return { success: false, message: `You owe $${player.debtAmount}. Trade, mortgage, or sell to recover.` };
+  }
 
   nextPlayer(game);
   return { success: true };
@@ -809,6 +991,9 @@ function getSanitizedState(game, requesterId = null) {
       isBankrupt: p.isBankrupt,
       isConnected: p.isConnected,
       color: p.color,
+      autoMortgage: !!p.autoMortgage,
+      inDebt: !!p.inDebt,
+      debtAmount: p.debtAmount || 0,
       isCurrent: game.players[game.currentPlayerIndex]?.id === p.id
     })),
     properties: game.properties,
@@ -871,6 +1056,6 @@ module.exports = {
   payJailFine, useJailCard, resolveCard,
   buildHouse, sellHouse, mortgageProperty, unmortgageProperty,
   proposeTrade, respondTrade, endTurn, forceEndTurn,
-  sendChatMessage,
+  sendChatMessage, setAutoMortgage,
   getSanitizedState, getCurrentPlayer, calculateRent, ownsMonopoly
 };
